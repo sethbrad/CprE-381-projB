@@ -8,7 +8,7 @@ end tb_controlLogic;
 architecture struct of controlLogic is
 
 component controlLogic is 
-    port(opcode : in std_logic_vector(5 downto 0);
+    port map(opcode : in std_logic_vector(5 downto 0);
              memRead : out std_logic;
              memToReg : out std_logic;
              ALUOp : out std_logic;
