@@ -8,9 +8,11 @@ entity ALUControl is
          control : out std_logic_vector(3 downto 0));
 end ALUControl;
 
-architecture behave or ALUControl is
+architecture behave of ALUControl is
 
-signal functOp, opcodeFunct : std_logic_vector(3 downto 0)
+signal functOp, opcodeFunct : std_logic_vector(3 downto 0);
+
+begin
 
 with funct select functOp <= 
     "0101" when "100000",
@@ -28,7 +30,8 @@ with funct select functOp <=
     "1010" when "000011",
     "1000" when "000100",
     "1001" when "000110",
-    "1010" when "000111";
+    "1010" when "000111",
+    "1111" when others;
 
 with opcode select opcodeFunct <= 
     "0101" when "001000",
@@ -40,11 +43,13 @@ with opcode select opcodeFunct <=
     "0101" when "101011",
     "1000" when "001111",
     "0111" when "001010",
-    "0111" when "001011";
+    "0111" when "001011",
+    "1111" when others;
 
 
     with ALUOp select control <=
         functOp when '0',
-        opcodeFunc when '1';
+        opcodeFunct when '1',
+        "0000" when others;
 
 end behave;
