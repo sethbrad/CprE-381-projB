@@ -71,7 +71,6 @@ architecture structure of MIPS_Processor is
   signal s_ALUCtl           : std_logic_vector(3 downto 0);    -- ALU operation signal
   signal s_ALUIn1           : std_logic_vector(N-1 downto 0);  -- ALU input 1
   signal s_ALUIn2           : std_logic_vector(N-1 downto 0);  -- ALU input 2
-  signal s_NextNextInstAddr : std_logic_vector(N-1 downto 0);  -- PC + 4, next next address to be read
   signal s_ShiftAmt         : std_logic_vector(N-1 downto 0);  -- 32 bit extended shift amount
   signal s_ALUIn2Imm        : std_logic_vector(N-1 downto 0);  -- Output of first mux to ALUIn2 (imm/data2)
 
@@ -88,7 +87,7 @@ architecture structure of MIPS_Processor is
     port(i_Clk, i_WriteEnable               : in std_logic;
          i_ReadReg1, i_ReadReg2, i_WriteReg : in std_logic_vector(4 downto 0);
          i_WriteData		            : in std_logic_vector(31 downto 0);
-         o_ReadData1, o_ReadData2           : out std_logic_vector(31 downto 0));
+         o_ReadData1, o_ReadData2, o_Reg2   : out std_logic_vector(31 downto 0));
   end component;
 
   component fullALU_shifter is
@@ -176,13 +175,7 @@ begin
 
   oALUOut    <= s_ALUOut;
   s_DMemAddr <= s_ALUOut;
-
-  PC: ndff
-    port map(i_CLK => iCLK, 
-             i_RST => '0', 
-             i_WE  => '1',  
-             i_D   => s_NextNextInstAddr, 
-             o_Q   => s_NextInstAddr); 
+  s_DMemData <= s_ReadData2;
 
   RegFile: register_file
     port map(i_Clk         => iCLK, 
@@ -192,7 +185,8 @@ begin
              i_WriteReg    => s_RegWrAddr,
              i_WriteData   => s_RegWrData,
              o_ReadData1   => s_ReadData1,
-             o_ReadData2   => s_ReadData2);
+             o_ReadData2   => s_ReadData2,
+             o_Reg2        => v0);
 
   DataALU: fullALU_shifter
     port map(i_a        => s_ALUIn1,
@@ -205,9 +199,9 @@ begin
 
   PCALU: fullALU_shifter
     port map(i_a        => x"00000004",
-             i_b        => s_NextInstAddr,
+             i_b        => s_IMemAddr,
              i_s        => "0101",
-             o_F        => s_NextNextInstAddr,
+             o_F        => s_NextInstAddr,
              o_cOut     => open,
              o_Overflow => open,
              o_Zero     => open);

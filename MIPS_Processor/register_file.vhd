@@ -2,13 +2,13 @@ library IEEE;
 use IEEE.std_logic_1164.all;
 
 library work;
-use work.mux_pack.all;
+use work.a_mux_pack.all;
 
 entity register_file is
   port(i_Clk, i_WriteEnable               : in std_logic;
        i_ReadReg1, i_ReadReg2, i_WriteReg : in std_logic_vector(4 downto 0);
        i_WriteData		          : in std_logic_vector(31 downto 0);
-       o_ReadData1, o_ReadData2           : out std_logic_vector(31 downto 0));
+       o_ReadData1, o_ReadData2, o_Reg2   : out std_logic_vector(31 downto 0));
 end register_file;
 
 architecture structure of register_file is
@@ -63,5 +63,7 @@ begin
   port map(i_Sel => i_ReadReg2,
            i_In  => s_Data,
            o_Out => o_ReadData2);
+
+  o_Reg2 <= s_Data(2);
 
 end structure;

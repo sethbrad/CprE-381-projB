@@ -2,7 +2,7 @@ library IEEE;
 use IEEE.std_logic_1164.all;
 
 library work;
-use work.mux_pack.all;
+use work.a_mux_pack.all;
 
 entity mux32_1 is
   port(i_Sel  : in std_logic_vector(4 downto 0);    -- Select input

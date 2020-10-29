@@ -11,7 +11,7 @@ end extN_32;
 
 architecture structure of extN_32 is
 
-signal s_ext : std_logic_vector(N-1 downto 0);
+signal s_ext : std_logic_vector(31-N downto 0);
 
 begin
   
