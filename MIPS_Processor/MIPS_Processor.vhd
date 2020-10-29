@@ -54,13 +54,12 @@ architecture structure of MIPS_Processor is
   component mem is
     generic(ADDR_WIDTH : integer;
             DATA_WIDTH : integer);
-    port(
-          clk          : in std_logic;
-          addr         : in std_logic_vector((ADDR_WIDTH-1) downto 0);
-          data         : in std_logic_vector((DATA_WIDTH-1) downto 0);
-          we           : in std_logic := '1';
-          q            : out std_logic_vector((DATA_WIDTH -1) downto 0));
-    end component;
+    port(clk          : in std_logic;
+         addr         : in std_logic_vector((ADDR_WIDTH-1) downto 0);
+         data         : in std_logic_vector((DATA_WIDTH-1) downto 0);
+         we           : in std_logic := '1';
+         q            : out std_logic_vector((DATA_WIDTH -1) downto 0));
+  end component;
 
   -- TODO: You may add any additional signals or components your implementation 
   --       requires below this comment
@@ -69,9 +68,21 @@ architecture structure of MIPS_Processor is
   signal s_ReadData2        : std_logic_vector(N-1 downto 0);  -- Register file ReadData2 output
   signal s_Imm              : std_logic_vector(N-1 downto 0);  -- Sign extended immediate
   signal s_ALUOut           : std_logic_vector(N-1 downto 0);  -- ALU output
-  signal s_ALUOp            : std_logic_vector(3 downto 0);    -- ALU operation signal
+  signal s_ALUCtl           : std_logic_vector(3 downto 0);    -- ALU operation signal
+  signal s_ALUIn1           : std_logic_vector(N-1 downto 0);  -- ALU input 1
   signal s_ALUIn2           : std_logic_vector(N-1 downto 0);  -- ALU input 2
   signal s_NextNextInstAddr : std_logic_vector(N-1 downto 0);  -- PC + 4, next next address to be read
+  signal s_ShiftAmt         : std_logic_vector(N-1 downto 0);  -- 32 bit extended shift amount
+  signal s_ALUIn2Imm        : std_logic_vector(N-1 downto 0);  -- Output of first mux to ALUIn2 (imm/data2)
+
+  -- Control signals
+  signal s_RegDst   : std_logic;
+  signal s_MemToReg : std_logic;
+  signal s_MemWrite : std_logic;
+  signal s_ALUSrc   : std_logic;
+  signal s_ALUOp    : std_logic_vector(2 downto 0);
+  signal s_LoadUpper  : std_logic;
+  signal s_Shift    : std_logic;
 
   component register_file is
     port(i_Clk, i_WriteEnable               : in std_logic;
@@ -90,10 +101,11 @@ architecture structure of MIPS_Processor is
          o_Zero      : out std_logic);
   end component;
 
-  component ext16_32 is
+  component extN_32 is
     -- i_Ctl: 0 = zero extend, 1 = sign extend
+    generic(N : integer := 16);
     port(i_Ctl  : in std_logic;
-         i_16   : in std_logic_vector(15 downto 0);
+         i_in   : in std_logic_vector(N-1 downto 0);
          o_32  : out std_logic_vector(31 downto 0));
   end component;
 
@@ -112,6 +124,24 @@ architecture structure of MIPS_Processor is
          i_WE         : in std_logic; 
          i_D          : in std_logic_vector(N-1 downto 0); 
          o_Q          : out std_logic_vector(N-1 downto 0)); 
+  end component;
+
+  component ALUControl is
+    port(ALUOp   : in std_logic_vector(2 downto 0);
+         funct   : in std_logic_vector(5 downto 0);
+         shift   : out std_logic;
+         control : out std_logic_vector(3 downto 0));
+  end component;
+
+  component controlLogic is
+    port(opcode    : in std_logic_vector(5 downto 0);
+         regDest   : out std_logic;
+         memToReg  : out std_logic;
+         ALUOp     : out std_logic_vector(2 downto 0);
+         memWrite  : out std_logic;
+         ALUSrc    : out std_logic;
+         regWrite  : out std_logic;
+         loadUpper : out std_logic);
   end component;
 
 begin
@@ -157,24 +187,24 @@ begin
   RegFile: register_file
     port map(i_Clk         => iCLK, 
              i_WriteEnable => s_RegWr,
-             i_ReadReg1    => s_Inst, 
-             i_ReadReg2    => s_Inst, 
+             i_ReadReg1    => s_Inst(25 downto 21), 
+             i_ReadReg2    => s_Inst(20 downto 16), 
              i_WriteReg    => s_RegWrAddr,
              i_WriteData   => s_RegWrData,
              o_ReadData1   => s_ReadData1,
              o_ReadData2   => s_ReadData2);
 
   DataALU: fullALU_shifter
-    port map(i_a        => s_ReadData1,
+    port map(i_a        => s_ALUIn1,
              i_b        => s_ALUIn2,
-             i_s        => s_ALUOp,
+             i_s        => s_ALUCtl,
              o_F        => s_ALUOut,
              o_cOut     => open,
              o_Overflow => open,
              o_Zero     => open);
 
-  PCALU: fullALUshifter
-    port map(i_a        => "100",
+  PCALU: fullALU_shifter
+    port map(i_a        => x"00000004",
              i_b        => s_NextInstAddr,
              i_s        => "0101",
              o_F        => s_NextNextInstAddr,
@@ -183,29 +213,65 @@ begin
              o_Zero     => open);
 
   WriteReg: n_mux2_1
-    generic map(N => 5);
+    generic map(N => 5)
     port map(i_A => s_Inst(20 downto 16),
              i_B => s_Inst(15 downto 11),
-             i_S => ,
+             i_S => s_RegDst,
              o_F => s_RegWrAddr);
 
-  ALUIn: n_mux2_1
-    generic map(N => 32);
+  ALULdUpp: n_mux2_1
+    generic map(N => 32)
+    port map(i_A => s_ReadData1,
+             i_B => x"00000010",
+             i_S => s_LoadUpper,
+             o_F => s_ALUIn1);
+
+  ALUImm: n_mux2_1
+    generic map(N => 32)
     port map(i_A => s_ReadData2,
              i_B => s_Imm,
-             i_S => ,
+             i_S => s_ALUSrc,
+             o_F => s_ALUIn2Imm);
+
+  ALUInShift: n_mux2_1
+    generic map(N => 32)
+    port map(i_A => s_ALUIn2Imm,
+             i_B => s_ShiftAmt,
+             i_S => s_Shift,
              o_F => s_ALUIn2);
 
   MemToReg: n_mux2_1
-    generic map(N => 32);
+    generic map(N => 32)
     port map(i_A => s_DMemOut,
              i_B => s_ALUOut,
-             i_S => ,
+             i_S => s_MemToReg,
              o_F => s_RegWrData);
 
-  SignExtend: ext16_32
+  SignExtend: extN_32
     port map(i_Ctl => '1',
-             i_16  => s_Inst(15 downto 0),
+             i_in  => s_Inst(15 downto 0),
              o_32  => s_Imm);
+
+  ZeroExtend: extN_32
+    generic map(N => 5)
+    port map(i_Ctl => '0',
+             i_in  => s_Inst(10 downto 6),
+             o_32  => s_ShiftAmt);
+
+  CtlLogic: controlLogic
+    port map(opcode    => s_Inst(31 downto 26),
+             regDest   => s_RegDst,
+             memToReg  => s_MemToReg,
+             ALUOp     => s_ALUOp,
+             memWrite  => s_MemWrite,
+             ALUSrc    => s_ALUSrc,
+             regWrite  => s_RegWr,
+             loadUpper => s_LoadUpper);
+
+  ALUCtl: ALUControl
+    port map(ALUOp   => s_ALUOp,
+             funct   => s_Inst(5 downto 0),
+             shift   => s_Shift,
+             control => s_ALUCtl);
 
 end structure;
