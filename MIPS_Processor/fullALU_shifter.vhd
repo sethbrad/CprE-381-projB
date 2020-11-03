@@ -44,8 +44,8 @@ port map(a        => i_a,
          zero     => o_Zero);
 
 SHIFTER: barrel_shifter
-port map(i_A      => i_a,
-         i_Shamt  => i_b(4 downto 0),
+port map(i_A      => i_b,
+         i_Shamt  => i_a(4 downto 0),
          i_Ctl    => i_s(1 downto 0),
          o_F      => s_Fshift);
 

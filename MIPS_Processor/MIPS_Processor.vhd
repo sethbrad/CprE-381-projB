@@ -32,20 +32,20 @@ end  MIPS_Processor;
 architecture structure of MIPS_Processor is
 
   -- Required data memory signals
-  signal s_DMemWr       : std_logic; -- TODO: use this signal as the final active high data memory write enable signal
-  signal s_DMemAddr     : std_logic_vector(N-1 downto 0); -- TODO: use this signal as the final data memory address input
-  signal s_DMemData     : std_logic_vector(N-1 downto 0); -- TODO: use this signal as the final data memory data input
-  signal s_DMemOut      : std_logic_vector(N-1 downto 0); -- TODO: use this signal as the data memory output
+  signal s_DMemWr       : std_logic; -- use this signal as the final active high data memory write enable signal
+  signal s_DMemAddr     : std_logic_vector(N-1 downto 0); -- use this signal as the final data memory address input
+  signal s_DMemData     : std_logic_vector(N-1 downto 0); -- use this signal as the final data memory data input
+  signal s_DMemOut      : std_logic_vector(N-1 downto 0); -- use this signal as the data memory output
  
   -- Required register file signals 
-  signal s_RegWr        : std_logic; -- TODO: use this signal as the final active high write enable input to the register file
-  signal s_RegWrAddr    : std_logic_vector(4 downto 0); -- TODO: use this signal as the final destination register address input
-  signal s_RegWrData    : std_logic_vector(N-1 downto 0); -- TODO: use this signal as the final data memory data input
+  signal s_RegWr        : std_logic; -- use this signal as the final active high write enable input to the register file
+  signal s_RegWrAddr    : std_logic_vector(4 downto 0); -- use this signal as the final destination register address input
+  signal s_RegWrData    : std_logic_vector(N-1 downto 0); -- use this signal as the final data memory data input
 
   -- Required instruction memory signals
   signal s_IMemAddr     : std_logic_vector(N-1 downto 0); -- Do not assign this signal, assign to s_NextInstAddr instead
-  signal s_NextInstAddr : std_logic_vector(N-1 downto 0); -- TODO: use this signal as your intended final instruction memory address input.
-  signal s_Inst         : std_logic_vector(N-1 downto 0); -- TODO: use this signal as the instruction signal 
+  signal s_NextInstAddr : std_logic_vector(N-1 downto 0); -- use this signal as your intended final instruction memory address input.
+  signal s_Inst         : std_logic_vector(N-1 downto 0); -- use this signal as the instruction signal 
 
   -- Required halt signal -- for simulation
   signal v0             : std_logic_vector(N-1 downto 0); -- TODO: should be assigned to the output of register 2, used to implement the halt SYSCALL
@@ -64,29 +64,30 @@ architecture structure of MIPS_Processor is
   -- TODO: You may add any additional signals or components your implementation 
   --       requires below this comment
 
+  signal s_NextNextInstAddr : std_logic_vector(N-1 downto 0);
+  signal s_PCPlus4          : std_logic_vector(N-1 downto 0);
   signal s_ReadData1        : std_logic_vector(N-1 downto 0);  -- Register file ReadData1 output
   signal s_ReadData2        : std_logic_vector(N-1 downto 0);  -- Register file ReadData2 output
   signal s_Imm              : std_logic_vector(N-1 downto 0);  -- Sign extended immediate
   signal s_ALUOut           : std_logic_vector(N-1 downto 0);  -- ALU output
-  signal s_ALUCtl           : std_logic_vector(3 downto 0);    -- ALU operation signal
   signal s_ALUIn1           : std_logic_vector(N-1 downto 0);  -- ALU input 1
   signal s_ALUIn2           : std_logic_vector(N-1 downto 0);  -- ALU input 2
   signal s_ShiftAmt         : std_logic_vector(N-1 downto 0);  -- 32 bit extended shift amount
-  signal s_ALUIn2Imm        : std_logic_vector(N-1 downto 0);  -- Output of first mux to ALUIn2 (imm/data2)
+  signal s_ALUIn1Temp       : std_logic_vector(N-1 downto 0);
 
   -- Control signals
-  signal s_RegDst   : std_logic;
-  signal s_MemToReg : std_logic;
-  signal s_MemWrite : std_logic;
-  signal s_ALUSrc   : std_logic;
-  signal s_ALUOp    : std_logic_vector(2 downto 0);
-  signal s_LoadUpper  : std_logic;
-  signal s_Shift    : std_logic;
+  signal s_RegDst    : std_logic;
+  signal s_MemToReg  : std_logic;
+  signal s_ALUSrc    : std_logic;
+  signal s_ALUOp     : std_logic_vector(3 downto 0);
+  signal s_LoadUpper : std_logic;
+  signal s_Shift     : std_logic;
+  signal s_SignExt   : std_logic;
 
   component register_file is
-    port(i_Clk, i_WriteEnable               : in std_logic;
+    port(i_Clk, i_WriteEnable , i_Reset     : in std_logic;
          i_ReadReg1, i_ReadReg2, i_WriteReg : in std_logic_vector(4 downto 0);
-         i_WriteData		            : in std_logic_vector(31 downto 0);
+         i_WriteData                        : in std_logic_vector(31 downto 0);
          o_ReadData1, o_ReadData2, o_Reg2   : out std_logic_vector(31 downto 0));
   end component;
 
@@ -125,22 +126,18 @@ architecture structure of MIPS_Processor is
          o_Q          : out std_logic_vector(N-1 downto 0)); 
   end component;
 
-  component ALUControl is
-    port(ALUOp   : in std_logic_vector(2 downto 0);
-         funct   : in std_logic_vector(5 downto 0);
-         shift   : out std_logic;
-         control : out std_logic_vector(3 downto 0));
-  end component;
-
   component controlLogic is
     port(opcode    : in std_logic_vector(5 downto 0);
+         functCode : in std_logic_vector(5 downto 0);
          regDest   : out std_logic;
          memToReg  : out std_logic;
-         ALUOp     : out std_logic_vector(2 downto 0);
+         ALUOp     : out std_logic_vector(3 downto 0);
          memWrite  : out std_logic;
          ALUSrc    : out std_logic;
          regWrite  : out std_logic;
-         loadUpper : out std_logic);
+         shift     : out std_logic;
+         loadUpper : out std_logic;
+         signExt   : out std_logic);
   end component;
 
 begin
@@ -149,7 +146,6 @@ begin
   with iInstLd select
     s_IMemAddr <= s_NextInstAddr when '0',
       iInstAddr when others;
-
 
   IMem: mem
     generic map(ADDR_WIDTH => 10,
@@ -177,6 +173,26 @@ begin
   s_DMemAddr <= s_ALUOut;
   s_DMemData <= s_ReadData2;
 
+  with iRst select
+    s_NextNextInstAddr <=  x"00400000" when '1',
+                           s_PCPlus4 when others;
+
+  PC: ndff
+    port map(i_CLK => iCLK,
+             i_RST => '0',
+             i_WE  => '1',
+             i_D   => s_NextNextInstAddr,
+             o_Q   => s_NextInstAddr); 
+
+  PCALU: fullALU_shifter
+    port map(i_a        => s_NextInstAddr,
+             i_b        => x"00000004",
+             i_s        => "0101",
+             o_F        => s_PCPlus4,
+             o_cOut     => open,
+             o_Overflow => open,
+             o_Zero     => open);
+
   RegFile: register_file
     port map(i_Clk         => iCLK, 
              i_WriteEnable => s_RegWr,
@@ -184,6 +200,7 @@ begin
              i_ReadReg2    => s_Inst(20 downto 16), 
              i_WriteReg    => s_RegWrAddr,
              i_WriteData   => s_RegWrData,
+             i_Reset       => iRST,
              o_ReadData1   => s_ReadData1,
              o_ReadData2   => s_ReadData2,
              o_Reg2        => v0);
@@ -191,17 +208,8 @@ begin
   DataALU: fullALU_shifter
     port map(i_a        => s_ALUIn1,
              i_b        => s_ALUIn2,
-             i_s        => s_ALUCtl,
+             i_s        => s_ALUOp,
              o_F        => s_ALUOut,
-             o_cOut     => open,
-             o_Overflow => open,
-             o_Zero     => open);
-
-  PCALU: fullALU_shifter
-    port map(i_a        => x"00000004",
-             i_b        => s_IMemAddr,
-             i_s        => "0101",
-             o_F        => s_NextInstAddr,
              o_cOut     => open,
              o_Overflow => open,
              o_Zero     => open);
@@ -213,26 +221,26 @@ begin
              i_S => s_RegDst,
              o_F => s_RegWrAddr);
 
-  ALULdUpp: n_mux2_1
-    generic map(N => 32)
-    port map(i_A => s_ReadData1,
-             i_B => x"00000010",
-             i_S => s_LoadUpper,
-             o_F => s_ALUIn1);
-
   ALUImm: n_mux2_1
     generic map(N => 32)
     port map(i_A => s_ReadData2,
              i_B => s_Imm,
              i_S => s_ALUSrc,
-             o_F => s_ALUIn2Imm);
+             o_F => s_ALUIn2);
 
-  ALUInShift: n_mux2_1
+  Shift: n_mux2_1
     generic map(N => 32)
-    port map(i_A => s_ALUIn2Imm,
+    port map(i_A => s_ReadData1,
              i_B => s_ShiftAmt,
              i_S => s_Shift,
-             o_F => s_ALUIn2);
+             o_F => s_ALUIn1Temp);
+
+  LoadUpper: n_mux2_1
+    generic map(N => 32)
+    port map(i_A => s_ALUIn1Temp,
+             i_B => x"00000010",
+             i_S => s_LoadUpper,
+             o_F => s_ALUIn1);
 
   MemToReg: n_mux2_1
     generic map(N => 32)
@@ -242,7 +250,7 @@ begin
              o_F => s_RegWrData);
 
   SignExtend: extN_32
-    port map(i_Ctl => '1',
+    port map(i_Ctl => s_SignExt,
              i_in  => s_Inst(15 downto 0),
              o_32  => s_Imm);
 
@@ -254,18 +262,15 @@ begin
 
   CtlLogic: controlLogic
     port map(opcode    => s_Inst(31 downto 26),
+             functCode => s_Inst(5 downto 0),
              regDest   => s_RegDst,
              memToReg  => s_MemToReg,
              ALUOp     => s_ALUOp,
-             memWrite  => s_MemWrite,
+             memWrite  => s_DMemWr,
              ALUSrc    => s_ALUSrc,
              regWrite  => s_RegWr,
-             loadUpper => s_LoadUpper);
-
-  ALUCtl: ALUControl
-    port map(ALUOp   => s_ALUOp,
-             funct   => s_Inst(5 downto 0),
-             shift   => s_Shift,
-             control => s_ALUCtl);
+             shift     => s_Shift,
+             loadUpper => s_LoadUpper,
+             signExt   => s_SignExt);
 
 end structure;

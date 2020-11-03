@@ -5,9 +5,9 @@ library work;
 use work.a_mux_pack.all;
 
 entity register_file is
-  port(i_Clk, i_WriteEnable               : in std_logic;
+  port(i_Clk, i_WriteEnable, i_Reset      : in std_logic;
        i_ReadReg1, i_ReadReg2, i_WriteReg : in std_logic_vector(4 downto 0);
-       i_WriteData		          : in std_logic_vector(31 downto 0);
+       i_WriteData                        : in std_logic_vector(31 downto 0);
        o_ReadData1, o_ReadData2, o_Reg2   : out std_logic_vector(31 downto 0));
 end register_file;
 
@@ -48,7 +48,7 @@ begin
   REG_GEN: for i in 1 to 31 generate
     reg_i: ndff 
       port map(i_CLK => i_Clk,
-               i_RST => '0',
+               i_RST => i_Reset,
                i_WE  => s_WE(i),
                i_D   => i_WriteData,
   	       o_Q   => s_Data(i));
