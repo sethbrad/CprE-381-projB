@@ -64,25 +64,46 @@ architecture structure of MIPS_Processor is
   -- TODO: You may add any additional signals or components your implementation 
   --       requires below this comment
 
-  signal s_NextNextInstAddr : std_logic_vector(N-1 downto 0);
-  signal s_PCPlus4          : std_logic_vector(N-1 downto 0);
+  signal s_NextNextInstAddr     : std_logic_vector(N-1 downto 0); -- Input to PC
+  signal s_NextNextInstAddrWRst : std_logic_vector(N-1 downto 0); -- Input to PC taking into account iRst
+  signal s_PCPlus4              : std_logic_vector(N-1 downto 0);
+  
   signal s_ReadData1        : std_logic_vector(N-1 downto 0);  -- Register file ReadData1 output
   signal s_ReadData2        : std_logic_vector(N-1 downto 0);  -- Register file ReadData2 output
   signal s_Imm              : std_logic_vector(N-1 downto 0);  -- Sign extended immediate
+
   signal s_ALUOut           : std_logic_vector(N-1 downto 0);  -- ALU output
   signal s_ALUIn1           : std_logic_vector(N-1 downto 0);  -- ALU input 1
   signal s_ALUIn2           : std_logic_vector(N-1 downto 0);  -- ALU input 2
   signal s_ShiftAmt         : std_logic_vector(N-1 downto 0);  -- 32 bit extended shift amount
-  signal s_ALUIn1Temp       : std_logic_vector(N-1 downto 0);
+  signal s_ALUIn1Temp       : std_logic_vector(N-1 downto 0);  -- Temp data for ALUIn1 muxes
+
+  signal s_MemRegData       : std_logic_vector(N-1 downto 0);  -- Data from memory or ALUOut
+  signal s_RegWrRdRt        : std_logic_vector(4 downto 0);    -- Output of mux for Rd/Rt
 
   -- Control signals
-  signal s_RegDst    : std_logic;
-  signal s_MemToReg  : std_logic;
-  signal s_ALUSrc    : std_logic;
-  signal s_ALUOp     : std_logic_vector(3 downto 0);
-  signal s_LoadUpper : std_logic;
-  signal s_Shift     : std_logic;
-  signal s_SignExt   : std_logic;
+  signal s_RegDst      : std_logic;
+  signal s_MemToReg    : std_logic;
+  signal s_ALUSrc      : std_logic;
+  signal s_ALUOp       : std_logic_vector(3 downto 0);
+  signal s_LoadUpper   : std_logic;
+  signal s_Shift       : std_logic;
+  signal s_SignExt     : std_logic;
+  signal s_BranchEq    : std_logic;
+  signal s_BranchNeq   : std_logic;
+  signal s_Jump        : std_logic;
+  signal s_JumpReg     : std_logic;
+  signal s_JumpAndLink : std_logic;
+
+  -- Intermediate control signals
+  signal s_BranchAddr     : std_logic_vector(N-1 downto 0); -- Immediate << 2
+  signal s_BranchOrPC     : std_logic_vector(N-1 downto 0); -- BranchAddr + PC+4
+  signal s_BranchNextAddr : std_logic_vector(N-1 downto 0);
+  signal s_JumpOrBranch   : std_logic_vector(N-1 downto 0);
+  signal s_JumpAddr       : std_logic_vector(N-1 downto 0);
+
+  signal s_Branch     : std_logic; -- Input to mux for branches
+  signal s_ALUZero    : std_logic;
 
   component register_file is
     port(i_Clk, i_WriteEnable , i_Reset     : in std_logic;
@@ -126,18 +147,23 @@ architecture structure of MIPS_Processor is
          o_Q          : out std_logic_vector(N-1 downto 0)); 
   end component;
 
-  component controlLogic is
-    port(opcode    : in std_logic_vector(5 downto 0);
-         functCode : in std_logic_vector(5 downto 0);
-         regDest   : out std_logic;
-         memToReg  : out std_logic;
-         ALUOp     : out std_logic_vector(3 downto 0);
-         memWrite  : out std_logic;
-         ALUSrc    : out std_logic;
-         regWrite  : out std_logic;
-         shift     : out std_logic;
-         loadUpper : out std_logic;
-         signExt   : out std_logic);
+  component ControlLogic is
+    port(i_Opcode      : in std_logic_vector(5 downto 0);
+         i_FunctCode   : in std_logic_vector(5 downto 0);
+         o_RegDest     : out std_logic;
+         o_MemToReg    : out std_logic;
+         o_ALUOp       : out std_logic_vector(3 downto 0);
+         o_MemWrite    : out std_logic;
+         o_ALUSrc      : out std_logic;
+         o_RegWrite    : out std_logic;
+         o_Shift       : out std_logic;
+         o_LoadUpper   : out std_logic;
+         o_SignExt     : out std_logic;
+         o_BranchEq    : out std_logic;
+         o_BranchNeq   : out std_logic;
+         o_Jump        : out std_logic;
+         o_JumpReg     : out std_logic;
+         o_JumpAndLink : out std_logic);
   end component;
 
 begin
@@ -173,15 +199,13 @@ begin
   s_DMemAddr <= s_ALUOut;
   s_DMemData <= s_ReadData2;
 
-  with iRst select
-    s_NextNextInstAddr <=  x"00400000" when '1',
-                           s_PCPlus4 when others;
+  s_NextNextInstAddrWRst <=  x"00400000" when iRst = '1' else s_NextNextInstAddr;
 
   PC: ndff
     port map(i_CLK => iCLK,
              i_RST => '0',
              i_WE  => '1',
-             i_D   => s_NextNextInstAddr,
+             i_D   => s_NextNextInstAddrWRst,
              o_Q   => s_NextInstAddr); 
 
   PCALU: fullALU_shifter
@@ -212,14 +236,41 @@ begin
              o_F        => s_ALUOut,
              o_cOut     => open,
              o_Overflow => open,
-             o_Zero     => open);
+             o_Zero     => s_ALUZero);
+
+  SignExtend: extN_32
+    port map(i_Ctl => s_SignExt,
+             i_in  => s_Inst(15 downto 0),
+             o_32  => s_Imm);
+
+  ZeroExtend: extN_32
+    generic map(N => 5)
+    port map(i_Ctl => '0',
+             i_in  => s_Inst(10 downto 6),
+             o_32  => s_ShiftAmt);
+
+  -- Basic Logic
 
   WriteReg: n_mux2_1
     generic map(N => 5)
     port map(i_A => s_Inst(20 downto 16),
              i_B => s_Inst(15 downto 11),
              i_S => s_RegDst,
+             o_F => s_RegWrRdRt);
+
+  WriteRegJump: n_mux2_1
+    generic map(N => 5)
+    port map(i_A => s_RegWrRdRt,
+             i_B => "11111", -- 31
+             i_S => s_JumpAndLink,
              o_F => s_RegWrAddr);
+
+  WriteRegData: n_mux2_1
+    generic map(N => 32)
+    port map(i_A => s_MemRegData,
+             i_B => s_PCPlus4,
+             i_S => s_JumpAndLink,
+             o_F => s_RegWrData);
 
   ALUImm: n_mux2_1
     generic map(N => 32)
@@ -247,30 +298,64 @@ begin
     port map(i_A => s_DMemOut,
              i_B => s_ALUOut,
              i_S => s_MemToReg,
-             o_F => s_RegWrData);
+             o_F => s_MemRegData);
 
-  SignExtend: extN_32
-    port map(i_Ctl => s_SignExt,
-             i_in  => s_Inst(15 downto 0),
-             o_32  => s_Imm);
+  -- Control Flow Components
 
-  ZeroExtend: extN_32
-    generic map(N => 5)
-    port map(i_Ctl => '0',
-             i_in  => s_Inst(10 downto 6),
-             o_32  => s_ShiftAmt);
+  s_BranchAddr <= s_Imm(29 downto 0) & "00";
 
-  CtlLogic: controlLogic
-    port map(opcode    => s_Inst(31 downto 26),
-             functCode => s_Inst(5 downto 0),
-             regDest   => s_RegDst,
-             memToReg  => s_MemToReg,
-             ALUOp     => s_ALUOp,
-             memWrite  => s_DMemWr,
-             ALUSrc    => s_ALUSrc,
-             regWrite  => s_RegWr,
-             shift     => s_Shift,
-             loadUpper => s_LoadUpper,
-             signExt   => s_SignExt);
+  BranchALU: fullALU_shifter
+    port map(i_a        => s_PCPlus4,
+             i_b        => s_BranchAddr,
+             i_s        => "0101", -- add
+             o_F        => s_BranchNextAddr,
+             o_cOut     => open,
+             o_Overflow => open,
+             o_Zero     => open);
+
+  s_JumpAddr <= s_PCPlus4(31 downto 28) & s_Inst(25 downto 0) & "00";
+
+  -- Control Flow Logic
+
+  s_Branch <= (s_BranchEq and s_ALUZero) or (s_BranchNeq and (not s_ALUZero));
+
+  Branch: n_mux2_1
+    generic map(N => 32)
+    port map(i_A => s_PCPlus4,
+             i_B => s_BranchNextAddr,
+             i_S => s_Branch,
+             o_F => s_BranchOrPC);
+
+  Jump: n_mux2_1
+    generic map(N => 32)
+    port map(i_A => s_BranchOrPC,
+             i_B => s_JumpAddr,
+             i_S => s_Jump,
+             o_F => s_JumpOrBranch);
+
+  JumpReg: n_mux2_1
+    generic map(N => 32)
+    port map(i_A => s_JumpOrBranch,
+             i_B => s_ReadData1,
+             i_S => s_JumpReg,
+             o_F => s_NextNextInstAddr);
+
+  CtlLogic: ControlLogic
+    port map(i_Opcode      => s_Inst(31 downto 26),
+             i_FunctCode   => s_Inst(5 downto 0),
+             o_RegDest     => s_RegDst,
+             o_MemToReg    => s_MemToReg,
+             o_ALUOp       => s_ALUOp,
+             o_MemWrite    => s_DMemWr,
+             o_ALUSrc      => s_ALUSrc,
+             o_RegWrite    => s_RegWr,
+             o_Shift       => s_Shift,
+             o_LoadUpper   => s_LoadUpper,
+             o_SignExt     => s_SignExt,
+             o_BranchEq    => s_BranchEq,
+             o_BranchNeq   => s_BranchNeq,
+             o_Jump        => s_Jump,
+             o_JumpReg     => s_JumpReg,
+             o_JumpAndLink => s_JumpAndLink);
 
 end structure;
